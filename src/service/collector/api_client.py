@@ -109,20 +109,23 @@ class CapitalClient:
     def place_working_order(
         self,
         epic: str,
-        direction: str,   # "BUY" ou "SELL"
-        level: float,     # prix de déclenchement
+        direction: str,    # "BUY" ou "SELL"
+        level: float,      # prix de déclenchement
         size: float,
+        stop_level: float, # stop loss (obligatoire sur le compte demo Capital.com)
     ) -> dict:
         """Place un ordre stop (working order). Retourne la réponse API."""
         r = requests.post(
             f"{BASE_URL}/workingorders",
             headers={**self.session.get_headers(), "Content-Type": "application/json"},
             json={
-                "epic":      epic,
-                "direction": direction,
-                "size":      size,
-                "level":     level,
-                "type":      "STOP",
+                "epic":           epic,
+                "direction":      direction,
+                "size":           size,
+                "level":          level,
+                "type":           "STOP",
+                "stopLevel":      stop_level,
+                "guaranteedStop": True,
             },
             timeout=TIMEOUT,
         )

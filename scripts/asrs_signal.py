@@ -90,13 +90,13 @@ def main(force: bool = False) -> None:
 
     buy = client.place_working_order(
         epic=EPIC, direction="BUY",
-        level=long_entry, size=TRADE_SIZE,
+        level=long_entry, size=TRADE_SIZE, stop_level=long_stop,
     )
     print(f"BUY order placé  → {buy}")
 
     sell = client.place_working_order(
         epic=EPIC, direction="SELL",
-        level=short_entry, size=TRADE_SIZE,
+        level=short_entry, size=TRADE_SIZE, stop_level=short_stop,
     )
     print(f"SELL order placé → {sell}")
 
