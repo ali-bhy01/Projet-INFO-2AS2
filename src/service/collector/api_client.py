@@ -114,21 +114,39 @@ class CapitalClient:
         size: float,
         stop_level: float, # stop loss (obligatoire sur le compte demo Capital.com)
     ) -> dict:
-        """Place un ordre stop (working order). Retourne la réponse API."""
-        r = requests.post(
-            f"{BASE_URL}/workingorders",
-            headers={**self.session.get_headers(), "Content-Type": "application/json"},
-            json={
-                "epic":           epic,
-                "direction":      direction,
-                "size":           size,
-                "level":          level,
-                "type":           "STOP",
-                "stopLevel":      stop_level,
-                "guaranteedStop": True,
-            },
-            timeout=TIMEOUT,
-        )
+        """
+        Place un ordre stop (working order).
+        Si l'API rejette le stop (trop proche), parse la valeur max autorisée
+        et réessaie automatiquement avec le stop ajusté.
+        """
+        import re
+
+        def _post(sl: float) -> requests.Response:
+            return requests.post(
+                f"{BASE_URL}/workingorders",
+                headers={**self.session.get_headers(), "Content-Type": "application/json"},
+                json={
+                    "epic":           epic,
+                    "direction":      direction,
+                    "size":           size,
+                    "level":          level,
+                    "type":           "STOP",
+                    "stopLevel":      sl,
+                    "guaranteedStop": True,
+                },
+                timeout=TIMEOUT,
+            )
+
+        r = _post(stop_level)
+
+        # Si l'API indique une valeur max autorisée, réessayer avec celle-ci
+        if r.status_code not in (200, 201):
+            match = re.search(r"maxvalue:\s*([\d.]+)", r.text)
+            if match:
+                adjusted = float(match.group(1))
+                print(f"    Stop ajusté : {stop_level} → {adjusted} (min distance API)")
+                r = _post(adjusted)
+
         if r.status_code not in (200, 201):
             raise ValueError(f"Erreur place_working_order : {r.status_code} - {r.text}")
         return r.json()
