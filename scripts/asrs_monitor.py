@@ -75,13 +75,13 @@ def main() -> None:
             limit_level = round(entry - stop_dist, 1)
 
         try:
-            client.update_position(deal_id, limit_level)
+            client.update_position(deal_id, limit_level, stop)
             print(f"  {direction} @ {entry}  stop {stop}  → TP ajouté @ {limit_level}")
             updated += 1
         except ValueError as e:
             print(f"  Erreur update TP ({deal_id}): {e}")
 
-    if updated == 0 and de40:
+    if updated == 0 and all(p["position"].get("limitLevel") is not None for p in de40):
         print("  Tous les TP sont déjà en place.")
 
     session.close()
