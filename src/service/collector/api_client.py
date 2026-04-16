@@ -113,6 +113,7 @@ class CapitalClient:
         level: float,      # prix de déclenchement
         size: float,
         stop_level: float, # stop loss (obligatoire sur le compte demo Capital.com)
+        limit_level: float | None = None,  # take profit (optionnel)
     ) -> dict:
         """
         Place un ordre stop (working order).
@@ -122,18 +123,21 @@ class CapitalClient:
         import re
 
         def _post(sl: float) -> requests.Response:
+            body = {
+                "epic":           epic,
+                "direction":      direction,
+                "size":           size,
+                "level":          level,
+                "type":           "STOP",
+                "stopLevel":      sl,
+                "guaranteedStop": True,
+            }
+            if limit_level is not None:
+                body["limitLevel"] = limit_level
             return requests.post(
                 f"{BASE_URL}/workingorders",
                 headers={**self.session.get_headers(), "Content-Type": "application/json"},
-                json={
-                    "epic":           epic,
-                    "direction":      direction,
-                    "size":           size,
-                    "level":          level,
-                    "type":           "STOP",
-                    "stopLevel":      sl,
-                    "guaranteedStop": True,
-                },
+                json=body,
                 timeout=TIMEOUT,
             )
 
