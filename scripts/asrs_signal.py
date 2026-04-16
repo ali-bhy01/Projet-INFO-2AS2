@@ -92,13 +92,26 @@ def main(force: bool = False) -> None:
         epic=EPIC, direction="BUY",
         level=long_entry, size=TRADE_SIZE, stop_level=long_stop,
     )
-    print(f"BUY order placé  → {buy}")
+    buy_deal = buy.get("dealReference", "?")
+    print(f"BUY order placé  → {buy_deal}")
 
-    sell = client.place_working_order(
-        epic=EPIC, direction="SELL",
-        level=short_entry, size=TRADE_SIZE, stop_level=short_stop,
-    )
-    print(f"SELL order placé → {sell}")
+    try:
+        sell = client.place_working_order(
+            epic=EPIC, direction="SELL",
+            level=short_entry, size=TRADE_SIZE, stop_level=short_stop,
+        )
+        print(f"SELL order placé → {sell.get('dealReference', '?')}")
+    except ValueError as e:
+        # Annuler le BUY si le SELL échoue pour éviter un ordre orphelin
+        print(f"SELL échoué ({e}) — annulation du BUY {buy_deal}")
+        orders = client.get_working_orders()
+        for o in orders:
+            if o.get("workingOrderData", {}).get("dealReference") == buy_deal:
+                client.cancel_working_order(o["workingOrderData"]["dealId"])
+                print(f"BUY annulé.")
+                break
+        session.close()
+        raise
 
     session.close()
     print("Done.")

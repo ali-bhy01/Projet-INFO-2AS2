@@ -139,12 +139,12 @@ class CapitalClient:
 
         r = _post(stop_level)
 
-        # Si l'API indique une valeur max autorisée, réessayer avec celle-ci
+        # Si l'API indique une distance min/max, réessayer avec la valeur ajustée
         if r.status_code not in (200, 201):
-            match = re.search(r"maxvalue:\s*([\d.]+)", r.text)
+            match = re.search(r"(max|min)value:\s*([\d.]+)", r.text)
             if match:
-                adjusted = float(match.group(1))
-                print(f"    Stop ajusté : {stop_level} → {adjusted} (min distance API)")
+                adjusted = float(match.group(2))
+                print(f"    Stop ajusté : {stop_level} → {adjusted} (distance min API)")
                 r = _post(adjusted)
 
         if r.status_code not in (200, 201):
