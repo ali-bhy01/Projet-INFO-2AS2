@@ -6,14 +6,16 @@ import time
 BASE_URL = "https://demo-api-capital.backend-capital.com/api/v1"
 
 class SessionManager:
-    def __init__(self, api_key, identifier, password):
+    def __init__(self, api_key, identifier, password, ping=False):
         self.api_key = api_key
         self.identifier = identifier
         self.password = password
         self.cst = None
         self.security_token = None
+        self._stop_event = threading.Event()
         self._start_session()
-        self._start_ping()
+        if ping:
+            self._start_ping()
 
     def _start_session(self):
         r = requests.post(
@@ -28,8 +30,7 @@ class SessionManager:
         print("Session ouverte avec succès")
 
     def _ping(self):
-        while True:
-            time.sleep(9 * 60)
+        while not self._stop_event.wait(9 * 60):
             r = requests.get(f"{BASE_URL}/ping", headers=self.get_headers())
             if r.status_code != 200:
                 print("Ping failed, reconnexion...")
@@ -38,6 +39,10 @@ class SessionManager:
     def _start_ping(self):
         t = threading.Thread(target=self._ping, daemon=True)
         t.start()
+
+    def close(self):
+        """Arrête le thread de ping proprement."""
+        self._stop_event.set()
 
     def get_headers(self):
         return {"CST": self.cst, "X-SECURITY-TOKEN": self.security_token}
