@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-ASRS Monitor — détecte les positions DE40 sans TP et les ajoute (1:1 R:R).
+ASRS Monitor — vérifie si le prix a atteint le TP (1:1 R:R) et ferme la position.
 
 Déclenché par GitHub Actions toutes les 10 minutes pendant les heures de marché.
 """
@@ -51,38 +51,41 @@ def main() -> None:
         session.close()
         return
 
-    updated = 0
     for pos in de40:
         p         = pos["position"]
+        m         = pos.get("market", {})
         deal_id   = p["dealId"]
         direction = p.get("direction")
         entry     = p.get("level")
         stop      = p.get("stopLevel")
-        tp        = p.get("limitLevel")
 
-        if tp is not None:
-            print(f"  {direction} @ {entry} — TP déjà set @ {tp}")
+        # Prix actuel (mid bid/ask depuis la réponse positions)
+        bid = m.get("bid")
+        ask = m.get("offer") or m.get("ask")
+        if bid and ask:
+            current_price = (bid + ask) / 2
+        elif bid:
+            current_price = bid
+        else:
+            print(f"  {direction} @ {entry} — prix actuel indisponible, skip")
             continue
 
         if entry is None or stop is None:
             print(f"  {direction} @ {entry} — données manquantes, skip")
             continue
 
-        stop_dist = abs(entry - stop)
-        if direction == "BUY":
-            limit_level = round(entry + stop_dist, 1)
-        else:
-            limit_level = round(entry - stop_dist, 1)
+        stop_dist   = abs(entry - stop)
+        tp          = round(entry + stop_dist, 1) if direction == "BUY" else round(entry - stop_dist, 1)
+        tp_hit      = (current_price >= tp) if direction == "BUY" else (current_price <= tp)
 
-        try:
-            client.update_position(deal_id, limit_level, stop)
-            print(f"  {direction} @ {entry}  stop {stop}  → TP ajouté @ {limit_level}")
-            updated += 1
-        except ValueError as e:
-            print(f"  Erreur update TP ({deal_id}): {e}")
+        print(f"  {direction} @ {entry}  stop {stop}  TP {tp}  actuel {current_price:.1f}  {'→ TP ATTEINT' if tp_hit else 'en cours'}")
 
-    if updated == 0 and all(p["position"].get("limitLevel") is not None for p in de40):
-        print("  Tous les TP sont déjà en place.")
+        if tp_hit:
+            try:
+                client.close_position(deal_id)
+                print(f"  Position fermée @ {current_price:.1f}  (TP {tp})")
+            except ValueError as e:
+                print(f"  Erreur close position ({deal_id}): {e}")
 
     session.close()
     print("Done.")
