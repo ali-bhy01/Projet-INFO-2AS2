@@ -29,12 +29,12 @@ SKIP_MONTHS  = {1, 7, 8}  # filtre C4 : janvier, juillet, août
 BERLIN       = ZoneInfo("Europe/Berlin")
 
 
-def main() -> None:
+def main(force: bool = False) -> None:
     now = datetime.now(BERLIN)
     print(f"[ASRS SIGNAL]  {now.strftime('%Y-%m-%d %H:%M')} CET")
 
     # Fenêtre d'action : 09:15 → 09:35 CET (marge pour latence GitHub Actions)
-    if not (now.hour == 9 and 15 <= now.minute <= 35):
+    if not force and not (now.hour == 9 and 15 <= now.minute <= 35):
         print(f"Hors fenêtre signal ({now.strftime('%H:%M')} CET) — exit")
         return
 
@@ -105,4 +105,8 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--force", action="store_true", help="Bypass time window check")
+    args = parser.parse_args()
+    main(force=args.force)

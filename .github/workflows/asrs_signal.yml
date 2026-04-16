@@ -24,7 +24,7 @@ jobs:
         run: uv sync
 
       - name: Run ASRS signal
-        run: uv run python scripts/asrs_signal.py
+        run: uv run python scripts/asrs_signal.py ${{ github.event_name == 'workflow_dispatch' && '--force' || '' }}
         env:
           CAPITAL_API_KEY:    ${{ secrets.CAPITAL_API_KEY }}
           CAPITAL_IDENTIFIER: ${{ secrets.CAPITAL_IDENTIFIER }}
