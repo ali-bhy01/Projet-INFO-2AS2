@@ -40,9 +40,6 @@ def main() -> None:
     client = CapitalClient(session)
 
     positions = client.get_open_positions()
-    print(f"  Positions brutes API: {len(positions)}")
-    for p in positions:
-        print(f"    epic position={p.get('position',{}).get('epic')} market={p.get('market',{}).get('epic')}")
     de40 = [
         p for p in positions
         if (p.get("position", {}).get("epic") == EPIC or
