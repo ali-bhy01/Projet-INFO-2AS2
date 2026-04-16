@@ -177,6 +177,18 @@ class CapitalClient:
             raise ValueError(f"Erreur cancel_working_order : {r.status_code} - {r.text}")
         return r.json() if r.content else {}
 
+    def update_position(self, deal_id: str, limit_level: float) -> dict:
+        """Ajoute ou met à jour le take profit d'une position ouverte."""
+        r = requests.put(
+            f"{BASE_URL}/positions/{deal_id}",
+            headers={**self.session.get_headers(), "Content-Type": "application/json"},
+            json={"limitLevel": limit_level},
+            timeout=TIMEOUT,
+        )
+        if r.status_code not in (200, 201):
+            raise ValueError(f"Erreur update_position : {r.status_code} - {r.text}")
+        return r.json() if r.content else {}
+
     def get_open_positions(self) -> list:
         """Retourne la liste des positions ouvertes."""
         r = requests.get(
