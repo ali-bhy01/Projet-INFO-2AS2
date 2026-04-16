@@ -85,17 +85,12 @@ def main(force: bool = False) -> None:
     long_stop   = short_entry   # stop du long = prix d'entrée short
     short_stop  = long_entry    # stop du short = prix d'entrée long
 
-    # TP 1:1 — distance stop = range + 2*BUFFER
-    stop_dist   = round(long_entry - long_stop, 1)
-    long_tp     = round(long_entry  + stop_dist, 1)
-    short_tp    = round(short_entry - stop_dist, 1)
-
-    print(f"OCO  BUY  STOP @ {long_entry}  stop @ {long_stop}  TP @ {long_tp}")
-    print(f"OCO  SELL STOP @ {short_entry}  stop @ {short_stop}  TP @ {short_tp}")
+    print(f"OCO  BUY  STOP @ {long_entry}  stop @ {long_stop}")
+    print(f"OCO  SELL STOP @ {short_entry}  stop @ {short_stop}")
 
     buy = client.place_working_order(
         epic=EPIC, direction="BUY",
-        level=long_entry, size=TRADE_SIZE, stop_level=long_stop, limit_level=long_tp,
+        level=long_entry, size=TRADE_SIZE, stop_level=long_stop,
     )
     buy_deal = buy.get("dealReference", "?")
     print(f"BUY order placé  → {buy_deal}")
@@ -103,7 +98,7 @@ def main(force: bool = False) -> None:
     try:
         sell = client.place_working_order(
             epic=EPIC, direction="SELL",
-            level=short_entry, size=TRADE_SIZE, stop_level=short_stop, limit_level=short_tp,
+            level=short_entry, size=TRADE_SIZE, stop_level=short_stop,
         )
         print(f"SELL order placé → {sell.get('dealReference', '?')}")
     except ValueError as e:
