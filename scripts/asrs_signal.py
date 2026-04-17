@@ -29,9 +29,29 @@ SKIP_MONTHS  = {1, 7, 8}  # filtre C4 : janvier, juillet, août
 BERLIN       = ZoneInfo("Europe/Berlin")
 
 
+def wait_until_920() -> None:
+    """Attend 09:20 CET si le script est lancé en avance."""
+    import time
+    while True:
+        now = datetime.now(BERLIN)
+        if now.hour > 9 or (now.hour == 9 and now.minute >= 20):
+            break
+        target = now.replace(hour=9, minute=20, second=0, microsecond=0)
+        secs   = (target - now).total_seconds()
+        print(f"  En attente de 09:20 CET... ({int(secs//60)}min {int(secs%60)}s)", end="\r")
+        time.sleep(5)
+    print()
+
+
 def main(force: bool = False) -> None:
     now = datetime.now(BERLIN)
     print(f"[ASRS SIGNAL]  {now.strftime('%Y-%m-%d %H:%M')} CET")
+
+    # Si lancé avant 09:20, attendre
+    if not force and (now.hour < 9 or (now.hour == 9 and now.minute < 20)):
+        print("Script lancé en avance — attente de 09:20 CET...")
+        wait_until_920()
+        now = datetime.now(BERLIN)
 
     # Fenêtre d'action : 09:20 → 09:25 CET (signal bar fermée à 09:20)
     if not force and not (now.hour == 9 and 20 <= now.minute <= 25):
