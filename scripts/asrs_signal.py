@@ -7,9 +7,16 @@ Le script vérifie lui-même l'heure de Berlin avant d'agir.
 """
 import sys
 import os
+import json
 from pathlib import Path
 from datetime import datetime
 from zoneinfo import ZoneInfo
+
+STATE_FILE = Path(__file__).resolve().parent.parent / "state.json"
+
+
+def set_state(active: bool) -> None:
+    STATE_FILE.write_text(json.dumps({"position_active": active}))
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -134,6 +141,7 @@ def main(force: bool = False) -> None:
             level=short_entry, size=TRADE_SIZE, stop_level=short_stop,
         )
         print(f"SELL order placé → {sell.get('dealReference', '?')}")
+        set_state(True)
     except ValueError as e:
         # Annuler le BUY si le SELL échoue pour éviter un ordre orphelin
         print(f"SELL échoué ({e}) — annulation du BUY {buy_deal}")

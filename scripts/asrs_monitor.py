@@ -9,12 +9,25 @@ Logique :
 """
 import sys
 import os
+import json
 import time
 from pathlib import Path
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT       = Path(__file__).resolve().parent.parent
+STATE_FILE = ROOT / "state.json"
+
+
+def position_active() -> bool:
+    try:
+        return json.loads(STATE_FILE.read_text()).get("position_active", False)
+    except Exception:
+        return False
+
+
+def clear_state() -> None:
+    STATE_FILE.write_text(json.dumps({"position_active": False}))
 sys.path.insert(0, str(ROOT))
 
 from dotenv import load_dotenv
@@ -80,6 +93,7 @@ def run(client: CapitalClient, test: bool) -> bool:
             try:
                 client.close_position(deal_id)
                 print(f"  Position fermée @ {current_price:.1f}")
+                clear_state()
             except ValueError as e:
                 print(f"  Erreur close_position : {e}")
 
@@ -100,10 +114,9 @@ if __name__ == "__main__":
         session.close()
         sys.exit(0)
 
-    print("Monitor démarré — actif 09:20→17:20 CET, vérif toutes les 5s")
+    print("Monitor démarré — en attente d'une position active...")
     session = SessionManager(os.environ["CAPITAL_API_KEY"], os.environ["CAPITAL_IDENTIFIER"], os.environ["CAPITAL_PASSWORD"])
     client  = CapitalClient(session)
-    last_position_check = 0  # timestamp du dernier appel /positions
 
     while True:
         now = datetime.now(BERLIN)
@@ -113,17 +126,15 @@ if __name__ == "__main__":
             print("17:20 CET — monitor arrêté.")
             break
 
-        if not in_window(now):
-            time.sleep(30)
+        # Hors fenêtre ou pas de position signalée → dort sans appel API
+        if not in_window(now) or not position_active():
+            time.sleep(5)
             continue
 
-        # Dans la fenêtre active
-        elapsed = time.time() - last_position_check
+        # Position active → vérifie le TP toutes les 5s
         has_position = run(client, test=args.test)
-        last_position_check = time.time()
-
-        # Pas de position → re-check dans 30s (pas besoin de spammer)
-        # Position ouverte → re-check dans 5s pour attraper le TP
-        time.sleep(5 if has_position else 30)
+        if not has_position:
+            clear_state()
+        time.sleep(5)
 
     session.close()
