@@ -55,7 +55,7 @@ def main(test: bool = False) -> None:
 
     # Prix live via la dernière candle 1 min — plus fiable que le champ market des positions
     try:
-        candles = client.get_candles(EPIC, resolution="MINUTE_1", max=1)
+        candles = client.get_candles(EPIC, resolution="MINUTE", max=1)
         last = candles["prices"][-1]
         bid_live = last["closePrice"]["bid"]
         ask_live = last["closePrice"]["ask"]
