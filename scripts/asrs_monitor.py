@@ -25,7 +25,7 @@ EPIC   = "DE40"
 BERLIN = ZoneInfo("Europe/Berlin")
 
 
-def main() -> None:
+def main(test: bool = False) -> None:
     now = datetime.now(BERLIN)
     print(f"[ASRS MONITOR]  {now.strftime('%Y-%m-%d %H:%M')} CET")
 
@@ -76,8 +76,11 @@ def main() -> None:
             continue
 
         stop_dist = abs(entry - stop)
-        tp     = round(entry + stop_dist, 1) if direction == "BUY" else round(entry - stop_dist, 1)
-        tp_hit = (current_price >= tp)       if direction == "BUY" else (current_price <= tp)
+        if test:
+            tp = round(entry + 1.0, 1) if direction == "BUY" else round(entry - 1.0, 1)
+        else:
+            tp = round(entry + stop_dist, 1) if direction == "BUY" else round(entry - stop_dist, 1)
+        tp_hit = (current_price >= tp) if direction == "BUY" else (current_price <= tp)
 
         print(f"  {direction} @ {entry}  stop {stop}  TP {tp}  actuel {current_price:.1f}  {'→ TP ATTEINT' if tp_hit else 'en cours'}")
 
@@ -93,4 +96,8 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--test", action="store_true", help="TP fixe à 1 pt (test uniquement)")
+    args = parser.parse_args()
+    main(test=args.test)
