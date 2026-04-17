@@ -139,13 +139,25 @@ class CapitalClient:
 
         r = _post(stop_level)
 
-        # Si l'API indique une distance min/max, réessayer avec la valeur ajustée
+        # Cas 1 : l'API donne une valeur min/max explicite → utiliser directement
         if r.status_code not in (200, 201):
             match = re.search(r"(max|min)value:\s*([\d.]+)", r.text)
             if match:
                 adjusted = float(match.group(2))
                 print(f"    Stop ajusté : {stop_level} → {adjusted} (distance min API)")
                 r = _post(adjusted)
+
+        # Cas 2 : stop.price rejeté sans valeur explicite → reculer par paliers de 5 pts
+        if r.status_code not in (200, 201) and "stop.price" in r.text:
+            step      = 5.0
+            max_tries = 10
+            sl        = stop_level
+            for i in range(max_tries):
+                sl = round(sl - step, 1) if direction == "BUY" else round(sl + step, 1)
+                print(f"    Stop reculé ({i+1}/{max_tries}) : {sl}")
+                r = _post(sl)
+                if r.status_code in (200, 201):
+                    break
 
         if r.status_code not in (200, 201):
             raise ValueError(f"Erreur place_working_order : {r.status_code} - {r.text}")
