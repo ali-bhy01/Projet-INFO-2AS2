@@ -33,8 +33,8 @@ def main(force: bool = False) -> None:
     now = datetime.now(BERLIN)
     print(f"[ASRS SIGNAL]  {now.strftime('%Y-%m-%d %H:%M')} CET")
 
-    # Fenêtre d'action : 09:15 → 09:35 CET
-    if not force and not (now.hour == 9 and 15 <= now.minute <= 35):
+    # Fenêtre d'action : 09:20 → 09:25 CET (signal bar fermée à 09:20)
+    if not force and not (now.hour == 9 and 20 <= now.minute <= 25):
         print(f"Hors fenêtre signal ({now.strftime('%H:%M')} CET) — exit")
         return
 

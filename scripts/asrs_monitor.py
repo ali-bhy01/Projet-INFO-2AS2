@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-ASRS Monitor — vérifie si le prix a atteint le TP (1:1 R:R) et ferme la position.
+ASRS Monitor — pose le TP (limitLevel) sur les positions ouvertes via update_position().
 
-Déclenché par GitHub Actions toutes les 10 minutes pendant les heures de marché.
+Le TP est géré côté broker dès qu'il est posé : pas besoin de poller.
+Ce script tourne toutes les 10 min pour attraper les positions nouvellement ouvertes.
 """
 import sys
 import os
@@ -19,11 +20,13 @@ load_dotenv(ROOT / ".env")
 from src.service.collector.session_manager import SessionManager
 from src.service.collector.api_client import CapitalClient
 
-EPIC   = "DE40"
-BERLIN = ZoneInfo("Europe/Berlin")
+EPIC      = "DE40"
+BERLIN    = ZoneInfo("Europe/Berlin")
+TP_RR     = 1.0   # ratio R:R — 1.0 = 1:1 (même distance que le stop)
+TP_TEST_PTS = 1.0 # pts fixes pour le test (--test)
 
 
-def main() -> None:
+def main(test: bool = False) -> None:
     now = datetime.now(BERLIN)
     print(f"[ASRS MONITOR]  {now.strftime('%Y-%m-%d %H:%M')} CET")
 
@@ -53,43 +56,43 @@ def main() -> None:
 
     for pos in de40:
         p         = pos["position"]
-        m         = pos.get("market", {})
         deal_id   = p["dealId"]
         direction = p.get("direction")
         entry     = p.get("level")
         stop      = p.get("stopLevel")
-
-        # Prix actuel (mid bid/ask depuis la réponse positions)
-        bid = m.get("bid")
-        ask = m.get("offer") or m.get("ask")
-        if bid and ask:
-            current_price = (bid + ask) / 2
-        elif bid:
-            current_price = bid
-        else:
-            print(f"  {direction} @ {entry} — prix actuel indisponible, skip")
-            continue
+        limit     = p.get("limitLevel")  # TP déjà posé ?
 
         if entry is None or stop is None:
             print(f"  {direction} @ {entry} — données manquantes, skip")
             continue
 
-        stop_dist   = abs(entry - stop)
-        tp          = round(entry + stop_dist, 1) if direction == "BUY" else round(entry - stop_dist, 1)
-        tp_hit      = (current_price >= tp) if direction == "BUY" else (current_price <= tp)
+        stop_dist = abs(entry - stop)
+        if test:
+            tp = round(entry + TP_TEST_PTS, 1) if direction == "BUY" \
+                 else round(entry - TP_TEST_PTS, 1)
+            print(f"  [TEST] TP fixé à {TP_TEST_PTS} pt(s) de l'entrée")
+        else:
+            tp = round(entry + stop_dist * TP_RR, 1) if direction == "BUY" \
+                 else round(entry - stop_dist * TP_RR, 1)
 
-        print(f"  {direction} @ {entry}  stop {stop}  TP {tp}  actuel {current_price:.1f}  {'→ TP ATTEINT' if tp_hit else 'en cours'}")
+        if limit is not None:
+            print(f"  {direction} @ {entry}  stop {stop}  TP déjà posé @ {limit}  — skip")
+            continue
 
-        if tp_hit:
-            try:
-                client.close_position(deal_id)
-                print(f"  Position fermée @ {current_price:.1f}  (TP {tp})")
-            except ValueError as e:
-                print(f"  Erreur close position ({deal_id}): {e}")
+        print(f"  {direction} @ {entry}  stop {stop}  → pose TP @ {tp}")
+        try:
+            client.update_position(deal_id, limit_level=tp, stop_level=stop)
+            print(f"  TP posé @ {tp}  (deal {deal_id})")
+        except ValueError as e:
+            print(f"  Erreur update_position ({deal_id}): {e}")
 
     session.close()
     print("Done.")
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--test", action="store_true", help="TP fixe à 1 pt pour tester update_position()")
+    args = parser.parse_args()
+    main(test=args.test)
