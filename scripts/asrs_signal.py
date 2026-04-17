@@ -39,12 +39,12 @@ def main(force: bool = False) -> None:
         return
 
     # F1 — skip vendredi
-    if now.weekday() == 4:
+    if not force and now.weekday() == 4:
         print("Vendredi — skip (F1)")
         return
 
     # C4 — skip janvier, juillet, août
-    if now.month in SKIP_MONTHS:
+    if not force and now.month in SKIP_MONTHS:
         print(f"Mois {now.month} — skip (C4)")
         return
 
