@@ -159,6 +159,25 @@ class CapitalClient:
                 if r.status_code in (200, 201):
                     break
 
+        # Cas 3 : prix déjà au-delà du niveau STOP → basculer en ordre marché
+        if r.status_code not in (200, 201) and "stop.price" in r.text:
+            print(f"    Prix déjà au-delà du niveau {level} → bascule en ordre marché")
+            r2 = requests.post(
+                f"{BASE_URL}/positions",
+                headers={**self.session.get_headers(), "Content-Type": "application/json"},
+                json={
+                    "epic":           epic,
+                    "direction":      direction,
+                    "size":           size,
+                    "stopLevel":      stop_level,
+                    "guaranteedStop": True,
+                },
+                timeout=TIMEOUT,
+            )
+            if r2.status_code in (200, 201):
+                print(f"    Ordre marché placé.")
+                return r2.json()
+
         if r.status_code not in (200, 201):
             raise ValueError(f"Erreur place_working_order : {r.status_code} - {r.text}")
         return r.json()
