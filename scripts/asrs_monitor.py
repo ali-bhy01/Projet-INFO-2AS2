@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """
-ASRS Monitor — boucle toutes les 10 min de 09:20 à 17:20 CET.
-Vérifie si le prix a atteint le TP (1:1 R:R) et ferme la position.
+ASRS Monitor — vérifie le TP toutes les 5s entre 09:20 et 17:20 CET.
 
-Lancement : uv run python scripts/asrs_monitor.py
-            uv run python scripts/asrs_monitor.py --test   (TP à 1 pt)
+Logique :
+- Hors fenêtre    → attend sans appel API
+- Dans la fenêtre, pas de position connue → vérifie /positions toutes les 30s
+- Position connue → vérifie le prix toutes les 5s via candles
 """
 import sys
 import os
@@ -26,22 +27,13 @@ EPIC   = "DE40"
 BERLIN = ZoneInfo("Europe/Berlin")
 
 
-def main(test: bool = False, force: bool = False) -> None:
-    now = datetime.now(BERLIN)
-    print(f"[ASRS MONITOR]  {now.strftime('%Y-%m-%d %H:%M')} CET")
+def in_window(now: datetime) -> bool:
+    return (now.hour == 9 and now.minute >= 20) or (10 <= now.hour <= 16) or \
+           (now.hour == 17 and now.minute < 20)
 
-    # Fenêtre d'action : 09:20 → 17:20 CET
-    if not force and not (9 <= now.hour <= 17):
-        print(f"Hors fenêtre monitor ({now.strftime('%H:%M')} CET) — exit")
-        return
 
-    session = SessionManager(
-        os.environ["CAPITAL_API_KEY"],
-        os.environ["CAPITAL_IDENTIFIER"],
-        os.environ["CAPITAL_PASSWORD"],
-    )
-    client = CapitalClient(session)
-
+def run(client: CapitalClient, test: bool) -> bool:
+    """Vérifie le TP. Retourne True si une position est ouverte."""
     positions = client.get_open_positions()
     de40 = [
         p for p in positions
@@ -50,22 +42,18 @@ def main(test: bool = False, force: bool = False) -> None:
     ]
 
     if not de40:
-        print("  Aucune position DE40 ouverte.")
-        session.close()
-        return
+        return False
 
-    # Prix live via la dernière candle 1 min — plus fiable que le champ market des positions
+    # Prix live
     try:
-        candles = client.get_candles(EPIC, resolution="MINUTE", max=1)
-        last = candles["prices"][-1]
-        bid_live = last["closePrice"]["bid"]
-        ask_live = last["closePrice"]["ask"]
+        candles       = client.get_candles(EPIC, resolution="MINUTE", max=1)
+        last          = candles["prices"][-1]
+        bid_live      = last["closePrice"]["bid"]
+        ask_live      = last["closePrice"]["ask"]
         current_price = round((bid_live + ask_live) / 2, 1)
-        print(f"  Prix live {EPIC} : {current_price}  (bid {bid_live} / ask {ask_live})")
     except Exception as e:
-        print(f"  Impossible de récupérer le prix live : {e} — exit")
-        session.close()
-        return
+        print(f"  Prix indisponible : {e}")
+        return True
 
     for pos in de40:
         p         = pos["position"]
@@ -75,49 +63,67 @@ def main(test: bool = False, force: bool = False) -> None:
         stop      = p.get("stopLevel")
 
         if entry is None or stop is None:
-            print(f"  {direction} @ {entry} — données manquantes, skip")
             continue
 
         stop_dist = abs(entry - stop)
-        if test:
-            tp = round(entry + 1.0, 1) if direction == "BUY" else round(entry - 1.0, 1)
-        else:
-            tp = round(entry + stop_dist, 1) if direction == "BUY" else round(entry - stop_dist, 1)
+        tp     = round(entry + 1.0, 1) if (test and direction == "BUY") \
+            else round(entry - 1.0, 1) if test \
+            else round(entry + stop_dist, 1) if direction == "BUY" \
+            else round(entry - stop_dist, 1)
+
         tp_hit = (current_price >= tp) if direction == "BUY" else (current_price <= tp)
 
-        print(f"  {direction} @ {entry}  stop {stop}  TP {tp}  actuel {current_price:.1f}  {'→ TP ATTEINT' if tp_hit else 'en cours'}")
+        now_str = datetime.now(BERLIN).strftime("%H:%M:%S")
+        print(f"  [{now_str}] {direction} @ {entry}  TP {tp}  actuel {current_price:.1f}  {'→ TP ATTEINT' if tp_hit else '...'}")
 
         if tp_hit:
             try:
                 client.close_position(deal_id)
-                print(f"  Position fermée @ {current_price:.1f}  (TP {tp})")
+                print(f"  Position fermée @ {current_price:.1f}")
             except ValueError as e:
-                print(f"  Erreur close_position ({deal_id}): {e}")
+                print(f"  Erreur close_position : {e}")
 
-    session.close()
-    print("Done.")
+    return True
 
 
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("--test",  action="store_true", help="TP fixe à 1 pt (test uniquement)")
-    parser.add_argument("--force", action="store_true", help="Bypass fenêtre horaire (test)")
+    parser.add_argument("--test",  action="store_true", help="TP fixe à 1 pt")
+    parser.add_argument("--force", action="store_true", help="Bypass fenêtre horaire")
     args = parser.parse_args()
 
-    INTERVAL = 600  # 10 minutes
-
     if args.force:
-        # Mode test : un seul run immédiat
-        main(test=args.test, force=True)
-    else:
-        # Mode production : boucle jusqu'à 17:20 CET
-        print("Monitor démarré — tourne toutes les 10 min jusqu'à 17:20 CET")
-        while True:
-            now = datetime.now(ZoneInfo("Europe/Berlin"))
-            if now.hour > 17 or (now.hour == 17 and now.minute >= 20):
-                print("17:20 CET atteint — monitor arrêté.")
-                break
-            main(test=args.test, force=False)
-            print(f"  Prochain run dans 10 min ({now.strftime('%H:%M')} CET)\n")
-            time.sleep(INTERVAL)
+        session = SessionManager(os.environ["CAPITAL_API_KEY"], os.environ["CAPITAL_IDENTIFIER"], os.environ["CAPITAL_PASSWORD"])
+        client  = CapitalClient(session)
+        run(client, test=args.test)
+        session.close()
+        sys.exit(0)
+
+    print("Monitor démarré — actif 09:20→17:20 CET, vérif toutes les 5s")
+    session = SessionManager(os.environ["CAPITAL_API_KEY"], os.environ["CAPITAL_IDENTIFIER"], os.environ["CAPITAL_PASSWORD"])
+    client  = CapitalClient(session)
+    last_position_check = 0  # timestamp du dernier appel /positions
+
+    while True:
+        now = datetime.now(BERLIN)
+
+        # Arrêt à 17:20
+        if now.hour > 17 or (now.hour == 17 and now.minute >= 20):
+            print("17:20 CET — monitor arrêté.")
+            break
+
+        if not in_window(now):
+            time.sleep(30)
+            continue
+
+        # Dans la fenêtre active
+        elapsed = time.time() - last_position_check
+        has_position = run(client, test=args.test)
+        last_position_check = time.time()
+
+        # Pas de position → re-check dans 30s (pas besoin de spammer)
+        # Position ouverte → re-check dans 5s pour attraper le TP
+        time.sleep(5 if has_position else 30)
+
+    session.close()
