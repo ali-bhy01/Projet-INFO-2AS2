@@ -85,6 +85,19 @@ def main(force: bool = False) -> None:
     long_stop   = short_entry   # stop du long = prix d'entrée short
     short_stop  = long_entry    # stop du short = prix d'entrée long
 
+    # Prix courant pour valider la distance des stops garantis
+    cur_bar      = prices[-1]
+    cur_bid      = cur_bar["closePrice"]["bid"]
+    cur_ask      = cur_bar["closePrice"]["ask"]
+    cur_mid      = round((cur_bid + cur_ask) / 2, 1)
+    MIN_GSL_DIST = 100  # distance min conservative du stop par rapport au prix courant
+
+    # Pour le SELL : stop = max(stop_calculé, ask_courant + MIN_GSL_DIST)
+    short_stop = round(max(short_stop, cur_ask + MIN_GSL_DIST), 1)
+    # Pour le BUY  : stop = min(stop_calculé, bid_courant - MIN_GSL_DIST)
+    long_stop  = round(min(long_stop,  cur_bid - MIN_GSL_DIST), 1)
+
+    print(f"Prix courant : {cur_mid}  (bid {cur_bid} / ask {cur_ask})")
     print(f"OCO  BUY  STOP @ {long_entry}  stop @ {long_stop}")
     print(f"OCO  SELL STOP @ {short_entry}  stop @ {short_stop}")
 
