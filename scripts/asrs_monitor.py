@@ -25,12 +25,12 @@ EPIC   = "DE40"
 BERLIN = ZoneInfo("Europe/Berlin")
 
 
-def main(test: bool = False) -> None:
+def main(test: bool = False, force: bool = False) -> None:
     now = datetime.now(BERLIN)
     print(f"[ASRS MONITOR]  {now.strftime('%Y-%m-%d %H:%M')} CET")
 
     # Fenêtre d'action : 09:20 → 17:20 CET
-    if not (9 <= now.hour <= 17):
+    if not force and not (9 <= now.hour <= 17):
         print(f"Hors fenêtre monitor ({now.strftime('%H:%M')} CET) — exit")
         return
 
@@ -100,6 +100,7 @@ def main(test: bool = False) -> None:
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("--test", action="store_true", help="TP fixe à 1 pt (test uniquement)")
+    parser.add_argument("--test",  action="store_true", help="TP fixe à 1 pt (test uniquement)")
+    parser.add_argument("--force", action="store_true", help="Bypass fenêtre horaire")
     args = parser.parse_args()
-    main(test=args.test)
+    main(test=args.test, force=args.force)
