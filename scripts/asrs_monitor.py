@@ -53,23 +53,25 @@ def main(test: bool = False) -> None:
         session.close()
         return
 
+    # Prix live via la dernière candle 1 min — plus fiable que le champ market des positions
+    try:
+        candles = client.get_candles(EPIC, resolution="MINUTE_1", max=1)
+        last = candles["prices"][-1]
+        bid_live = last["closePrice"]["bid"]
+        ask_live = last["closePrice"]["ask"]
+        current_price = round((bid_live + ask_live) / 2, 1)
+        print(f"  Prix live {EPIC} : {current_price}  (bid {bid_live} / ask {ask_live})")
+    except Exception as e:
+        print(f"  Impossible de récupérer le prix live : {e} — exit")
+        session.close()
+        return
+
     for pos in de40:
         p         = pos["position"]
-        m         = pos.get("market", {})
         deal_id   = p["dealId"]
         direction = p.get("direction")
         entry     = p.get("level")
         stop      = p.get("stopLevel")
-
-        bid = m.get("bid")
-        ask = m.get("offer") or m.get("ask")
-        if bid and ask:
-            current_price = (bid + ask) / 2
-        elif bid:
-            current_price = bid
-        else:
-            print(f"  {direction} @ {entry} — prix actuel indisponible, skip")
-            continue
 
         if entry is None or stop is None:
             print(f"  {direction} @ {entry} — données manquantes, skip")
