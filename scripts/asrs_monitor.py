@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """
-ASRS Monitor — vérifie si le prix a atteint le TP (1:1 R:R) et ferme la position.
+ASRS Monitor — boucle toutes les 10 min de 09:20 à 17:20 CET.
+Vérifie si le prix a atteint le TP (1:1 R:R) et ferme la position.
 
-Capital.com demo ne supporte pas limitLevel sur les positions ouvertes.
-Le TP est donc géré manuellement : ce script tourne toutes les 10 min,
-calcule le TP 1:1 et appelle close_position() quand le prix l'atteint.
+Lancement : uv run python scripts/asrs_monitor.py
+            uv run python scripts/asrs_monitor.py --test   (TP à 1 pt)
 """
 import sys
 import os
+import time
 from pathlib import Path
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -101,6 +102,22 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--test",  action="store_true", help="TP fixe à 1 pt (test uniquement)")
-    parser.add_argument("--force", action="store_true", help="Bypass fenêtre horaire")
+    parser.add_argument("--force", action="store_true", help="Bypass fenêtre horaire (test)")
     args = parser.parse_args()
-    main(test=args.test, force=args.force)
+
+    INTERVAL = 600  # 10 minutes
+
+    if args.force:
+        # Mode test : un seul run immédiat
+        main(test=args.test, force=True)
+    else:
+        # Mode production : boucle jusqu'à 17:20 CET
+        print("Monitor démarré — tourne toutes les 10 min jusqu'à 17:20 CET")
+        while True:
+            now = datetime.now(ZoneInfo("Europe/Berlin"))
+            if now.hour > 17 or (now.hour == 17 and now.minute >= 20):
+                print("17:20 CET atteint — monitor arrêté.")
+                break
+            main(test=args.test, force=False)
+            print(f"  Prochain run dans 10 min ({now.strftime('%H:%M')} CET)\n")
+            time.sleep(INTERVAL)
