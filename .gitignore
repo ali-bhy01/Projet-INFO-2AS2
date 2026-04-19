@@ -208,3 +208,10 @@ __marimo__/
 .env
 
 data/
+
+# Pipeline MT4 (usage personnel, hors projet scolaire)
+mt4/
+scripts/asrs_signal_mt4.py
+scripts/asrs_monitor_mt4.py
+src/service/collector/mt4_client.py
+state_mt4.json
