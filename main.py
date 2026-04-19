@@ -1,6 +1,4 @@
-def main():
-    print("Hello from projet-info-2as2!")
-
+import uvicorn
 
 if __name__ == "__main__":
-    main()
+    uvicorn.run("src.api.api:app", host="0.0.0.0", port=8000, reload=True)
