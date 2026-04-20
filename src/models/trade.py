@@ -10,3 +10,4 @@ class Trade:
     exit:      float
     stop:      float
     pnl:       float
+    id:        int | None = None

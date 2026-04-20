@@ -209,6 +209,9 @@ __marimo__/
 
 data/
 
+# Claude Code
+.claude/
+
 # Pipeline MT4 (usage personnel, hors projet scolaire)
 mt4/
 scripts/asrs_signal_mt4.py
