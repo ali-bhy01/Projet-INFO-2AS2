@@ -16,8 +16,7 @@ SAMPLE = {
 
 
 def test_insert_candle_returns_true():
-    candle_dao.exists("DE40", "2025-01-01T09:00:00")  # force init DB
-    assert candle_dao.insert_candle(SAMPLE) in (True, False)  # peut déjà exister
+    assert candle_dao.insert_candle(SAMPLE) is True
 
 
 def test_insert_duplicate_returns_false():
@@ -37,11 +36,44 @@ def test_exists_unknown_returns_false():
 def test_get_all_returns_candle_objects():
     candle_dao.insert_candle(SAMPLE)
     results = candle_dao.get_all("DE40")
-    assert len(results) >= 1
+    assert len(results) == 1
     assert isinstance(results[0], Candle)
 
 
-def test_get_by_date_range():
+def test_get_all_empty_for_unknown_epic():
+    assert candle_dao.get_all("UNKNOWN") == []
+
+
+def test_candle_fields():
+    candle_dao.insert_candle(SAMPLE)
+    c = candle_dao.get_all("DE40")[0]
+    assert c.epic == "DE40"
+    assert c.open == 20000.0
+    assert c.high == 20050.0
+    assert c.low == 19980.0
+    assert c.close == 20030.0
+    assert c.volume == 100
+    assert c.resolution == "MINUTE_5"
+
+
+def test_get_by_date_range_returns_candle_objects():
     candle_dao.insert_candle(SAMPLE)
     results = candle_dao.get_by_date_range("DE40", "2025-01-01", "2025-01-02")
-    assert any(r.timestamp == "2025-01-01T09:00:00" for r in results)
+    assert len(results) == 1
+    assert isinstance(results[0], Candle)
+    assert results[0].timestamp == "2025-01-01T09:00:00"
+
+
+def test_get_by_date_range_out_of_range():
+    candle_dao.insert_candle(SAMPLE)
+    results = candle_dao.get_by_date_range("DE40", "2024-01-01", "2024-12-31")
+    assert results == []
+
+
+def test_get_all_ordered_by_timestamp():
+    earlier = {**SAMPLE, "id": "DE40_A", "timestamp": "2025-01-01T09:00:00"}
+    later   = {**SAMPLE, "id": "DE40_B", "timestamp": "2025-01-01T09:05:00"}
+    candle_dao.insert_candle(later)
+    candle_dao.insert_candle(earlier)
+    results = candle_dao.get_all("DE40")
+    assert results[0].timestamp < results[1].timestamp
