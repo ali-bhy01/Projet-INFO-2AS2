@@ -2,27 +2,6 @@ from src.dao.db_connection import get_connection
 from src.models.trade import Trade
 
 
-def _ensure_table() -> None:
-    conn = get_connection()
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS trade (
-            id        INTEGER PRIMARY KEY AUTOINCREMENT,
-            date      TEXT NOT NULL,
-            strategy  TEXT NOT NULL,
-            direction TEXT NOT NULL,
-            entry     REAL NOT NULL,
-            exit      REAL NOT NULL,
-            stop      REAL NOT NULL,
-            pnl       REAL NOT NULL
-        )
-    """)
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_trade_strategy ON trade(strategy)")
-    conn.commit()
-
-
-_ensure_table()
-
-
 def insert_trade(trade: Trade) -> None:
     conn = get_connection()
     conn.execute(
