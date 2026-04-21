@@ -10,7 +10,7 @@ dependencies = [
     "joblib>=1.5.3",
     "jupyter>=1.1.1",
     "matplotlib>=3.10.8",
-    "metatrader5>=5.0.5735",
+    "metatrader5>=5.0.5735; sys_platform == 'win32'",
     "pandas>=3.0.2",
     "python-dotenv>=1.2.2",
     "pyzmq>=27.1.0",
