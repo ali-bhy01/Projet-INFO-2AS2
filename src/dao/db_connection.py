@@ -32,4 +32,17 @@ def _init_schema(conn: sqlite3.Connection) -> None:
         )
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_epic_ts ON price_candle(epic, timestamp)")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS trade (
+            id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            date      TEXT NOT NULL,
+            strategy  TEXT NOT NULL,
+            direction TEXT NOT NULL,
+            entry     REAL NOT NULL,
+            exit      REAL NOT NULL,
+            stop      REAL NOT NULL,
+            pnl       REAL NOT NULL
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_trade_strategy ON trade(strategy)")
     conn.commit()

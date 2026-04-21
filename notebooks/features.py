@@ -1,96 +1,272 @@
 """
 =============================================================
-  ASRS — Advanced School Run Strategy  |  DAX 40 Futures
+  ASRS — Feature Engineering  |  DAX 40 Futures
 =============================================================
 
-On travaille sur le backtest quantitatif d'une stratégie de
-breakout intraday sur le DAX 40 (futures, résolution 5 min).
+Construit le dataset features pour la modélisation XGBoost.
+Toutes les features sont calculées AVANT 09:15 CET (pas de data leakage).
 
-L'idée de base est simple : après les 4 premières bougies de
-la session, le marché a donné une première indication de range.
-On place un ordre d'achat au-dessus et un ordre de vente en
-dessous. Le premier qui se déclenche, on le laisse courir
-jusqu'à la fin de journée — sans target, juste un stop.
+Usage :
+    from features import build_features, download_ext_features, FEATURE_COLS
 
----------------------------------------------------------------
-  RÈGLES FINALES (version optimisée — Sharpe 1.23)
----------------------------------------------------------------
-
-  Signal bar  = 4ème bougie de 5min  →  ouvre à 09:15 CET
-  Condition   = range de la bougie entre 10 et 55 pts
-
-  Entrée long  = signal_high + 2   (buy-stop)
-  Entrée short = signal_low  − 2   (sell-stop)
-  → OCO : le premier déclenché annule l'autre
-
-  Stop loss   = prix d'entrée opposé  (risque = range + 4 pts)
-  Exit        = stop touché  OU  fin de journée à 17:30 CET
-  Pas de profit target.
-
-  Filtres actifs :
-    F1 — on ne trade pas le vendredi
-    F2 — on ne trade pas si range signal < 10 ou > 55 pts
-    C4 — on ne trade pas en janvier, juillet, août
-
----------------------------------------------------------------
-  RÉSULTATS DE RÉFÉRENCE  (2006–2026, dax-5m_bk.csv)
----------------------------------------------------------------
-
-  Baseline (sans filtres)  →  Sharpe 0.40 | PF 1.08 | +6 029 pts | MaxDD −2 971
-  + F1 + F2                →  Sharpe 0.83 | PF 1.17 | +8 051 pts | MaxDD −1 863
-  + C4 (final)             →  Sharpe 1.23 | PF 1.27 | +9 278 pts | MaxDD −1 112
-
----------------------------------------------------------------
-  FEATURES DISPONIBLES DANS dax-5m_bk.csv
----------------------------------------------------------------
-
-  Le CSV ne contient pas de header. Format :
-      DD/MM/YYYY ; HH:MM ; open ; high ; low ; close ; volume
-  Timezone : CET (déjà en heure locale — 09:15 lisible directement)
-
-  On peut construire les features suivantes à partir des données brutes :
-
-  -- Signal bar (09:15 CET) --
-  range_signal        = high - low                        # range de la bougie signal
-  body_ratio          = |close - open| / range_signal     # proportion du corps
-  close_position      = (close - low) / range_signal      # position du close dans le range (0=bas, 1=haut)
-  direction_signal    = +1 si close > open, -1 sinon      # couleur de la bougie
-
-  -- Contexte pré-session (bougies avant 09:15) --
-  presession_move     = close_09h10 - close_08h00         # drift des 5 premières bougies
-  presession_range    = max(high) - min(low) sur 08h00–09h10
-
-  -- Gap d'ouverture --
-  opening_gap         = open_09h00 - close_veille_17h30   # gap par rapport à la veille
-  gap_direction       = signe du gap
-
-  -- Volatilité historique --
-  atr_20              = ATR moyen des 20 derniers jours
-  range_vs_atr        = range_signal / atr_20              # range normalisé
-
-  -- Calendrier --
-  day_of_week         = 0 (lundi) à 4 (vendredi)
-  month               = 1 à 12
-  week_of_month       = 1 à 5
-
-  -- Label (target à prédire) --
-  pnl                 = points gagnés/perdus sur le trade du jour
-  win                 = 1 si pnl > 0, 0 sinon
-  exit_reason         = "stop" ou "eod"
-
----------------------------------------------------------------
-  PISTES D'AMÉLIORATION À EXPLORER
----------------------------------------------------------------
-
-  On peut essayer de prédire, avant d'entrer en trade :
-    → Est-ce que ce jour va être profitable ?  (classification)
-    → Quel PnL espéré ?                        (régression)
-
-  Modèles à tester : logistic regression, random forest, XGBoost
-  Attention au data leakage : toutes les features doivent être
-  calculées AVANT 09:15, jamais avec des données post-signal.
-
-  Variable cible conseillée pour commencer : win (0/1)
-  Metric principale : Sharpe sur l'equity curve filtrée
-
+    ext = download_ext_features()          # télécharge VIX, VSTOXX, EUR/USD, SPX
+    df  = build_features(raw, ext=ext)     # raw = DataFrame 5min dax-5m_bk.csv
 """
+
+import warnings
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+
+# ── Features externes (macro/sentiment) ───────────────────────────────────────
+
+EXT_TICKERS = {
+    "^VIX":    "vix",
+    "^VSTOXX": "vstoxx",
+    "EURUSD=X": "eurusd",
+    "^GSPC":   "spx",
+}
+
+EXT_CACHE_PATH = Path(__file__).parent.parent / "data" / "ext_features.csv"
+
+
+def download_ext_features(
+    start: str = "2005-01-01",
+    end:   str = "2027-01-01",
+    cache: bool = True,
+) -> pd.DataFrame:
+    """
+    Télécharge VIX, VSTOXX, EUR/USD et S&P 500 via yfinance.
+    Met en cache dans data/ext_features.csv pour éviter les re-téléchargements.
+
+    Returns
+    -------
+    DataFrame journalier indexé par date, colonnes :
+        vix_prev, vix_5d_avg, vix_5d_change,
+        vstoxx_prev, vstoxx_5d_avg,
+        spx_prev_ret, eurusd_prev_ret, eurusd_5d_ret
+    """
+    try:
+        import yfinance as yf
+    except ImportError:
+        raise ImportError("yfinance non installé — uv add yfinance")
+
+    if cache and EXT_CACHE_PATH.exists():
+        ext = pd.read_csv(EXT_CACHE_PATH, index_col=0, parse_dates=True)
+        # Refresh if data is more than 7 days stale
+        if (pd.Timestamp.now() - ext.index[-1]).days <= 7:
+            return ext
+
+    raw_series = {}
+    for ticker, name in EXT_TICKERS.items():
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                df = yf.download(ticker, start=start, end=end, progress=False, auto_adjust=True)
+            close = df["Close"]
+            if isinstance(close, pd.DataFrame):
+                close = close.iloc[:, 0]
+            close = close.squeeze()
+            close.name = name
+            close.index = pd.to_datetime(close.index).tz_localize(None).normalize()
+            raw_series[name] = close
+        except Exception:
+            pass  # ticker non disponible (ex: VSTOXX limité selon région)
+
+    if not raw_series:
+        raise RuntimeError("Aucune donnée externe téléchargée — vérifiez la connexion réseau")
+
+    base = pd.concat(raw_series.values(), axis=1).sort_index()
+
+    ext = pd.DataFrame(index=base.index)
+
+    if "vix" in base:
+        ext["vix_prev"]      = base["vix"].shift(1)
+        ext["vix_5d_avg"]    = base["vix"].rolling(5, min_periods=1).mean().shift(1)
+        ext["vix_5d_change"] = base["vix"].shift(1) - base["vix"].shift(6)
+
+    if "vstoxx" in base:
+        ext["vstoxx_prev"]   = base["vstoxx"].shift(1)
+        ext["vstoxx_5d_avg"] = base["vstoxx"].rolling(5, min_periods=1).mean().shift(1)
+
+    if "spx" in base:
+        ext["spx_prev_ret"]  = base["spx"].pct_change().shift(1) * 100
+
+    if "eurusd" in base:
+        ext["eurusd_prev_ret"] = base["eurusd"].pct_change().shift(1) * 100
+        ext["eurusd_5d_ret"]   = base["eurusd"].pct_change(5).shift(1) * 100
+
+    ext = ext.dropna(how="all")
+
+    if cache:
+        EXT_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        ext.to_csv(EXT_CACHE_PATH)
+
+    return ext
+
+
+EXT_FEATURE_COLS = [
+    "vix_prev",
+    "vix_5d_avg",
+    "vix_5d_change",
+    "vstoxx_prev",
+    "vstoxx_5d_avg",
+    "spx_prev_ret",
+    "eurusd_prev_ret",
+    "eurusd_5d_ret",
+]
+
+
+# ── Features techniques (intraday) ────────────────────────────────────────────
+
+def build_features(raw: pd.DataFrame, ext: pd.DataFrame | None = None) -> pd.DataFrame:
+    """
+    Construit le dataset features à partir des données 5min brutes.
+
+    Parameters
+    ----------
+    raw : DataFrame 5min avec colonnes [open, high, low, close, volume]
+          index = datetime CET (sans timezone)
+    ext : DataFrame journalier issu de download_ext_features() (optionnel).
+          Si fourni, les colonnes macro sont ajoutées.
+
+    Returns
+    -------
+    DataFrame avec une ligne par jour, indexé par date.
+    """
+    hm = raw.index.strftime("%H:%M")
+
+    # ── Signal bar (09:15) ─────────────────────────────────────────────────
+    sig = raw[hm == "09:15"].copy()
+    sig.index = sig.index.normalize()
+    sig = sig[~sig.index.duplicated(keep='first')]  # keep first bar per day
+    sig_range = (sig["high"] - sig["low"]).replace(0, np.nan)
+
+    df = pd.DataFrame(index=sig.index)
+    df["range_signal"]     = (sig["high"] - sig["low"]).values
+    df["body_ratio"]       = (abs(sig["close"] - sig["open"]) / sig_range).values
+    df["close_position"]   = ((sig["close"] - sig["low"]) / sig_range).values
+    df["direction_signal"] = np.where(sig["close"] > sig["open"], 1, -1)
+
+    # ── Pré-session 08:00–09:10 ────────────────────────────────────────────
+    pre = raw[(hm >= "08:00") & (hm < "09:15")].copy()
+    pre_date = pre.index.normalize()
+    pre_open  = pre.groupby(pre_date)["open"].first()
+    pre_close = pre.groupby(pre_date)["close"].last()
+    pre_high  = pre.groupby(pre_date)["high"].max()
+    pre_low   = pre.groupby(pre_date)["low"].min()
+
+    df["presession_move"]  = (pre_close - pre_open).reindex(df.index).values
+    df["presession_range"] = (pre_high - pre_low).reindex(df.index).values
+
+    # ── Gap d'ouverture (open 09:00 - close 17:30 de la veille) ───────────
+    open_bar  = raw[hm == "09:00"].copy()
+    open_bar.index = open_bar.index.normalize()
+    close_bar = raw[hm == "17:30"].copy()
+    close_bar.index = close_bar.index.normalize()
+
+    prev_close = close_bar["close"].sort_index().shift(1)
+    gap = open_bar["open"] - prev_close.reindex(open_bar.index)
+
+    df["opening_gap"]   = gap.reindex(df.index).values
+    df["gap_direction"] = np.sign(df["opening_gap"])
+
+    # ── ATR 20 jours ──────────────────────────────────────────────────────
+    daily_date  = raw.index.normalize()
+    daily_high  = raw.groupby(daily_date)["high"].max()
+    daily_low   = raw.groupby(daily_date)["low"].min()
+    daily_close = raw.groupby(daily_date)["close"].last()
+
+    prev_close_d = daily_close.shift(1)
+    tr = pd.concat([
+        daily_high - daily_low,
+        (daily_high - prev_close_d).abs(),
+        (daily_low  - prev_close_d).abs(),
+    ], axis=1).max(axis=1)
+    atr_20 = tr.rolling(20, min_periods=5).mean()
+
+    df["atr_20"]       = atr_20.reindex(df.index).values
+    df["range_vs_atr"] = df["range_signal"] / df["atr_20"]
+
+    # ── PDH/PDL de la veille ──────────────────────────────────────────────
+    session = raw[(hm >= "09:00") & (hm <= "17:35")].copy()
+    sess_date = session.index.normalize()
+    pdh = session.groupby(sess_date)["high"].max().shift(1)
+    pdl = session.groupby(sess_date)["low"].min().shift(1)
+
+    df["pdh_range"]  = (pdh - pdl).reindex(df.index).values
+    df["sig_vs_pdh"] = (sig["open"].values - pdh.reindex(df.index).values)
+    df["sig_vs_pdl"] = (sig["open"].values - pdl.reindex(df.index).values)
+
+    # ── Calendrier ────────────────────────────────────────────────────────
+    dt = pd.to_datetime(df.index)
+    df["day_of_week"]   = dt.dayofweek
+    df["month"]         = dt.month
+    df["week_of_month"] = ((dt.day - 1) // 7 + 1)
+
+    # ── Conditions de filtre comme features binaires ───────────────────────
+    # (au lieu de filtrer avant l'entraînement, on laisse XGBoost décider)
+    df["is_friday"]    = (dt.dayofweek == 4).astype(int)
+    df["is_bad_month"] = dt.month.isin([1, 7, 8]).astype(int)
+    df["range_narrow"] = (df["range_signal"] < 10).astype(int)   # range < 10 pts
+    df["range_wide"]   = (df["range_signal"] > 55).astype(int)   # range > 55 pts
+
+    # ── Features externes (VIX, VSTOXX, EUR/USD, SPX) ─────────────────────
+    if ext is not None:
+        ext_aligned = ext.reindex(df.index, method="ffill")
+        for col in EXT_FEATURE_COLS:
+            if col in ext_aligned.columns:
+                df[col] = ext_aligned[col].values
+
+    return df.round(4)
+
+
+FILTER_FEATURE_COLS = [
+    "is_friday",
+    "is_bad_month",
+    "range_narrow",
+    "range_wide",
+]
+
+FEATURE_COLS = [
+    # Signal bar
+    "range_signal",
+    "body_ratio",
+    "close_position",
+    "direction_signal",
+    # Pré-session
+    "presession_move",
+    "presession_range",
+    # Gap ouverture
+    "opening_gap",
+    "gap_direction",
+    # Volatilité
+    "atr_20",
+    "range_vs_atr",
+    # Niveaux PDH/PDL
+    "pdh_range",
+    "sig_vs_pdh",
+    "sig_vs_pdl",
+    # Calendrier
+    "day_of_week",
+    "month",
+    "week_of_month",
+    # Conditions de filtre (apprises par le modèle)
+    "is_friday",
+    "is_bad_month",
+    "range_narrow",
+    "range_wide",
+]
+
+FEATURE_COLS_EXT = FEATURE_COLS + EXT_FEATURE_COLS
+
+__all__ = [
+    "build_features",
+    "download_ext_features",
+    "FEATURE_COLS",
+    "FEATURE_COLS_EXT",
+    "FILTER_FEATURE_COLS",
+    "EXT_FEATURE_COLS",
+]
