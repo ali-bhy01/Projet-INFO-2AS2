@@ -149,7 +149,9 @@ curl "http://localhost:8000/backtest?strategy=EXPRESSO"
 # Adapter le port si vous avez changé au step 4
 
 # 6. Lancer les tests
+source .venv/bin/activate
 python -m pytest
+
 ```
 
 ---
